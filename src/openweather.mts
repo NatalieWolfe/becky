@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const OPENWEATHER_KEY = '';
+import { getSecret } from './secret.mjs';
+
 const OPENWEATHER_HOST = 'api.openweathermap.org';
 
 type Timestamp = number;
@@ -105,9 +106,10 @@ export async function getForecast(
   lat: number,
   lon: number
 ): Promise<WeatherResponse> {
+  const appid = await getSecret('openweather_api_key');
   const res = await axios.get<WeatherResponse>(
     `https://${OPENWEATHER_HOST}/data/3.0/onecall`,
-    { params: { lat, lon, appid: OPENWEATHER_KEY } }
+    { params: { lat, lon, appid } }
   );
   if (res.status === 200) return res.data;
   console.error(res.status, res.data);
