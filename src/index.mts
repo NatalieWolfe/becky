@@ -1,8 +1,10 @@
 import dayjs from 'dayjs';
 import relativeTime from 'dayjs/plugin/relativeTime.js';
+import { io } from 'socket.io-client';
 
 import { Database } from './database.mjs';
 import { getForecast, getHistorical } from './openweather.mjs';
+import { BeckyBot } from './beckybot.mjs';
 
 const HOUR = 3600;
 const MAX_FETCH_WINDOW = 48 * HOUR;  // 48 hours in seconds.
@@ -10,20 +12,26 @@ const FETCH_DELAY_HOURS = 24;
 
 dayjs.extend(relativeTime);
 const db = await Database.open('becky.sqlite');
-scheduleHistoryFetching();
+let fetchTimeout = scheduleHistoryFetching();
 
-function scheduleHistoryFetching() {
+const socket = io(`http://${process.env.TELEGRAM_BOT_HOST}/becky`);
+const beckyBot = new BeckyBot(db, socket);
+await beckyBot.wait();
+await db.close();
+clearTimeout(fetchTimeout);
+
+function scheduleHistoryFetching(): NodeJS.Timeout {
   const time = dayjs()
     .add(FETCH_DELAY_HOURS, 'hours')
     .hour(randInt(0, 2)).minute(randInt(0, 60)).second(0).millisecond(0);
   console.log(`Next history fetch ${time.fromNow()} at ${time.format()}`);
-  setTimeout(async () => {
+  return setTimeout(async () => {
     try {
       await fetchHistory();
     } catch (err) {
       console.error('Failed to fetch history:', err);
     }
-    scheduleHistoryFetching();
+    fetchTimeout = scheduleHistoryFetching();
   }, time.valueOf() - Date.now());
 }
 
