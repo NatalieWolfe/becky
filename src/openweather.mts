@@ -2,6 +2,7 @@ import axios from 'axios';
 
 import { getSecret } from './secret.mjs';
 
+export const MAX_VISIBILITY = 10000;
 const OPENWEATHER_HOST = 'api.openweathermap.org';
 
 type Timestamp = number;
@@ -9,6 +10,7 @@ type Percent100 = number; // 0 - 100
 type Percent1 = number;   // 0.0 - 1.0
 type Meters = number;
 type Millimeters = number;
+type MMPerHour = number;
 
 interface WeatherCondition {
   id: number;
@@ -27,18 +29,18 @@ interface WeatherBase {
   wind_speed: number;
   wind_gust?: number;
   wind_deg: number;
-  weather: [WeatherCondition];
+  weather: [ WeatherCondition ];
 }
 
-interface CurrentWeather extends WeatherBase {
+export interface CurrentWeather extends WeatherBase {
   dt: Timestamp;
   sunrise: Timestamp;
   sunset: Timestamp;
   temp: number;
   feels_like: number;
   visibility: Meters;
-  rain?: { '1h': number; };
-  snow?: { '1h': number; };
+  rain?: { '1h': MMPerHour; };
+  snow?: { '1h': MMPerHour; };
 }
 
 interface MinuteWeather {
@@ -51,8 +53,8 @@ interface HourWeather extends WeatherBase {
   feels_like: number;
   visibility: Meters;
   pop: Percent1;
-  rain?: { '1h': number; };
-  snow?: { '1h': number; };
+  rain?: { '1h': MMPerHour; };
+  snow?: { '1h': MMPerHour; };
 }
 
 interface DayWeather extends WeatherBase {
@@ -90,28 +92,54 @@ interface WeatherAlert {
   tags: string[];
 }
 
-export interface WeatherResponse {
+export interface ForecastResponse {
   lat: number;
   lon: number;
   timezone: string;
   timezone_offset: number;
-  current: CurrentWeather;
-  minutely: MinuteWeather[];
-  hourly: HourWeather[];
-  daily: DayWeather[];
+  current?: CurrentWeather;
+  minutely?: MinuteWeather[];
+  hourly?: HourWeather[];
+  daily?: DayWeather[];
   alerts?: WeatherAlert[];
 }
 
-export async function getForecast(
+export interface HistoryResponse {
+  lat: number;
+  lon: number;
+  timezone: string;
+  timezone_offset: number;
+  data: [ CurrentWeather ];
+}
+
+export function getForecast(
   lat: number,
   lon: number
-): Promise<WeatherResponse> {
-  const appid = await getSecret('openweather_api_key');
-  const res = await axios.get<WeatherResponse>(
-    `https://${OPENWEATHER_HOST}/data/3.0/onecall`,
-    { params: { lat, lon, appid } }
+): Promise<ForecastResponse> {
+  return _callApi<ForecastResponse>(
+    '/data/3.0/onecall',
+    { lat, lon, exclude: 'current,minutely' }
   );
+}
+
+export function getHistorical(
+  lat: number,
+  lon: number,
+  dt: number
+): Promise<HistoryResponse> {
+  return _callApi<HistoryResponse>(
+    '/data/3.0/onecall/timemachine',
+    { lat, lon, dt }
+  );
+}
+
+async function _callApi<T>(endpoint: string, params: any): Promise<T> {
+  const appid = await getSecret('openweather_api_key');
+  params.appid = appid;
+  params.units = 'metric';
+  const res =
+    await axios.get<T>(`https://${OPENWEATHER_HOST}${endpoint}`, { params });
   if (res.status === 200) return res.data;
   console.error(res.status, res.data);
-  throw new Error(`Failed to get forecast: ${res.status}`);
+  throw new Error(`Failed to get ${endpoint}: ${res.status}`);
 }

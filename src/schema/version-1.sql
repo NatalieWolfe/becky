@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS weather_hourly_history (
   temperature   REAL NOT NULL,
   rain_mm       REAL NOT NULL,
   snow_mm       REAL NOT NULL,
-  PRIMARY KEY (location_id, weather_time) ON CONFLICT ABORT
+  PRIMARY KEY (location_id, weather_time DESC) ON CONFLICT ABORT
 );
 
 CREATE INDEX IF NOT EXISTS ordered_weather_hourly_history
