@@ -8,7 +8,13 @@ type Parameter = number | string;
 const SCHEMA_VERSION = 1;
 const SCHEMA_DIR = './src/schema';
 
-interface Location {
+interface LocationPartial {
+  name: string;
+  lat: number;
+  lon: number;
+}
+
+interface Location extends LocationPartial {
   id: string;
   name: string;
   lat: number;
@@ -117,6 +123,35 @@ export class Database {
     `);
   }
 
+  async getLocation(idOrName: string): Promise<Location> {
+    // IDs are `lat,lon` fixed to 2 decimals of precision.
+    const isId = /^-?\d+\.\d\d,-?\d+\.\d\d$/.test(idOrName);
+    return this._get<Location>(`
+      SELECT
+        l.location_id AS id,
+        l.name,
+        l.lat,
+        l.lon,
+        latest.weather_time AS lastWeatherTime
+      FROM locations AS l
+      LEFT JOIN (
+        SELECT location_id, MAX(weather_time) AS weather_time
+        FROM weather_hourly_history
+        GROUP BY location_id
+      ) AS latest USING (location_id)
+      WHERE ${isId ? 'location_id' : 'name'} = ?
+      LIMIT 1
+    `, [idOrName]);
+  }
+
+  async insertLocation(location: LocationPartial): Promise<void> {
+    const locationId = _toId(location.lat, location.lon);
+    return this._run(`
+      INSERT INTO locations (location_id, name, lat, lon)
+      VALUES ( ?, ?, ?, ? )
+    `, [locationId, location.name, location.lat, location.lon]);
+  }
+
   async insertWeatherHistory(
     locationId: string,
     time: number,
@@ -191,6 +226,10 @@ export class Database {
     console.log(versionFile);
     await this._exec(versionFile);
   }
+}
+
+function _toId(lat: number, lon: number) {
+  return `${lat.toFixed(2)},${lon.toFixed(2)}`;
 }
 
 function _toPromise<T = void>(

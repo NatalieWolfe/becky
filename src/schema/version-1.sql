@@ -1,7 +1,7 @@
 
 CREATE TABLE IF NOT EXISTS locations (
   location_id VARCHAR(32) NOT NULL PRIMARY KEY,
-  name        VARCHAR(128) NOT NULL,
+  name        VARCHAR(128) NOT NULL UNIQUE,
   lat         REAL NOT NULL,
   lon         REAL NOT NULL,
   UNIQUE (lat, lon) ON CONFLICT ABORT
