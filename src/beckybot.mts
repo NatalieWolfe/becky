@@ -1,6 +1,7 @@
+import dayjs from 'dayjs';
 import { Socket } from 'socket.io-client';
 
-import { Database } from './database.mjs';
+import { Database, Location } from './database.mjs';
 
 enum ErrorCode {
   CONFLICT = 409,
@@ -18,6 +19,18 @@ interface AddLocationRequest {
 
 interface ListLocationsRequest {
   requestId: string;
+}
+
+interface PrecipitationTotals {
+  day: number;
+  week: number;
+  month: number;
+}
+
+interface LocationResponse {
+  location: Location,
+  rain?: PrecipitationTotals;
+  snow?: PrecipitationTotals;
 }
 
 interface WhereToGoRequest {
@@ -67,11 +80,54 @@ export class BeckyBot {
     }
   }
 
-  _listLocations(req: ListLocationsRequest) {
-    this._socket.emit(req.requestId, {error: ErrorCode.NOT_IMPLEMENTED});
+  async _listLocations(req: ListLocationsRequest): Promise<void> {
+    try {
+      for await (const loc of this._db.listLocations()) {
+        const location = await this._summarizeWeatherHistory(loc);
+        this._socket.emit(`${req.requestId}_location`, location);
+      }
+      this._socket.emit(req.requestId);
+    } catch (err) {
+      console.error('Failed listing locations:', err);
+      this._socket.emit(req.requestId, { error: ErrorCode.INTERNAL });
+    }
   }
 
   _whereToGo(req: WhereToGoRequest) {
     this._socket.emit(req.requestId, {error: ErrorCode.NOT_IMPLEMENTED});
+  }
+
+  async _summarizeWeatherHistory(loc: Location): Promise<LocationResponse> {
+    const aDayAgo = dayjs().subtract(1, 'day').unix();
+    const aWeekAgo = dayjs().subtract(1, 'week').unix();
+    const aMonthAgo = dayjs().subtract(4, 'weeks').unix();
+    const rain = {
+      day: 0,
+      week: 0,
+      month: 0
+    };
+    const snow = {
+      day: 0,
+      week: 0,
+      month: 0
+    };
+    for await (const weather of this._db.listWeather(loc.id, aMonthAgo)) {
+      if (weather.time > aDayAgo) {
+        rain.day += weather.rain;
+        snow.day += weather.snow;
+      }
+      if (weather.time > aWeekAgo) {
+        rain.week += weather.rain;
+        snow.week += weather.snow;
+      }
+      if (weather.time > aMonthAgo) {
+        rain.month += weather.rain;
+        snow.month += weather.snow;
+      }
+    }
+    const res: LocationResponse = {location: loc};
+    if (rain.month) res.rain = rain;
+    if (snow.month) res.snow = snow;
+    return res;
   }
 }

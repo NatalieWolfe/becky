@@ -14,12 +14,19 @@ interface LocationPartial {
   lon: number;
 }
 
-interface Location extends LocationPartial {
+export interface Location extends LocationPartial {
   id: string;
   name: string;
   lat: number;
   lon: number;
   lastWeatherTime?: number;
+}
+
+interface LocationWeather {
+  locationId: string;
+  time: number;
+  rain: number;
+  snow: number;
 }
 
 interface WeatherBlobV1 {
@@ -33,6 +40,14 @@ interface InvertedPromise<T> {
   promise: Promise<IteratorResult<T>>;
   resolve: (row: IteratorResult<T>) => void;
   reject: (err: Error) => void;
+}
+
+interface InsertResult {
+  lastId: number;
+}
+
+interface UpdateResult {
+  affectedRowCount: number;
 }
 
 class EachRowIterator<T> implements AsyncIterator<T> {
@@ -146,10 +161,26 @@ export class Database {
 
   async insertLocation(location: LocationPartial): Promise<void> {
     const locationId = _toId(location.lat, location.lon);
-    return this._run(`
+    await this._run<InsertResult>(`
       INSERT INTO locations (location_id, name, lat, lon)
       VALUES ( ?, ?, ?, ? )
     `, [locationId, location.name, location.lat, location.lon]);
+  }
+
+  listWeather(
+    locationId: string,
+    oldestTime: number
+  ): AsyncIterable<LocationWeather> {
+    return this._each<LocationWeather>(`
+      SELECT
+        location_id AS locationId,
+        weather_time AS time,
+        rain_mm AS rain,
+        snow_mm AS snow
+      FROM weather_hourly_history
+      WHERE location_id = ?
+      AND weather_time >= ?
+    `, [locationId, oldestTime]);
   }
 
   async insertWeatherHistory(
@@ -157,7 +188,7 @@ export class Database {
     time: number,
     weather: CurrentWeather
   ): Promise<void> {
-    await this._run(`
+    await this._run<InsertResult>(`
       INSERT INTO weather_hourly_history (
         location_id,
         weather_time,
@@ -216,8 +247,22 @@ export class Database {
     return _toPromise<T>((cb) => this._db.get<T>(query, params, cb));
   }
 
-  _run(query: string, params?: Parameter[]): Promise<void> {
-    return _toPromise((cb) => this._db.run(query, params, cb));
+  _run<T extends (InsertResult | UpdateResult)>(
+    query: string,
+    params?: Parameter[]
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      // Must use old-school inline function to get proper `this` value.
+      this._db.run(query, params, function (err) {
+        if (err) {
+          reject(err);
+        } else if (typeof this.lastID === 'number') {
+          resolve({lastId: this.lastID} as T);
+        } else {
+          resolve({affectedRowCount: this.changes} as T);
+        }
+      });
+    });
   }
 
   async _updateSchema(i: number): Promise<void> {
