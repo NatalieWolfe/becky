@@ -112,6 +112,19 @@ export interface HistoryResponse {
   data: [ CurrentWeather ];
 }
 
+interface GeocodeResponse {
+  name: string;
+  lat: number;
+  lon: number;
+  country: string;
+  state?: string;
+  local_names: {
+    [languageCode: string]: string;
+    ascii: string;
+    feature_name: string;
+  };
+}
+
 export function getForecast(
   lat: number,
   lon: number
@@ -131,6 +144,10 @@ export function getHistorical(
     '/data/3.0/onecall/timemachine',
     { lat, lon, dt }
   );
+}
+
+export function geocodeLocation(query: string): Promise<GeocodeResponse[]> {
+  return _callApi<GeocodeResponse[]>('/geo/1.0/direct', {q: query, limit: 1});
 }
 
 async function _callApi<T>(endpoint: string, params: any): Promise<T> {

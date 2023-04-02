@@ -1,9 +1,15 @@
 import dayjs from 'dayjs';
 import { Socket } from 'socket.io-client';
 
-import { Database, Location } from './database.mjs';
+import { Coordinates, Database, Location } from './database.mjs';
+import { geocodeLocation, getForecast } from './openweather.mjs';
+
+const EARTH_RADIUS = 6378137;
+const MAX_OFFSET = 2.5;  // +/- 2.5 degrees
+const SEARCH_RADIUS = 300000;  // 300km
 
 enum ErrorCode {
+  NOT_FOUND = 404,
   CONFLICT = 409,
 
   INTERNAL = 500,
@@ -27,14 +33,21 @@ interface PrecipitationTotals {
   month: number;
 }
 
+interface ForecastSummary {
+  rain: number;
+  snow: number;
+}
+
 interface LocationResponse {
   location: Location,
   rain?: PrecipitationTotals;
   snow?: PrecipitationTotals;
+  forecast?: ForecastSummary;
 }
 
 interface WhereToGoRequest {
   requestId: string;
+  where: string;
 }
 
 export class BeckyBot {
@@ -58,7 +71,7 @@ export class BeckyBot {
 
   wait(): Promise<void> { return this._waitPromise; }
 
-  async _addLocation(req: AddLocationRequest): Promise<void> {
+  private async _addLocation(req: AddLocationRequest): Promise<void> {
     try {
       await this._db.insertLocation(req);
       this._socket.emit(req.requestId);
@@ -80,7 +93,7 @@ export class BeckyBot {
     }
   }
 
-  async _listLocations(req: ListLocationsRequest): Promise<void> {
+  private async _listLocations(req: ListLocationsRequest): Promise<void> {
     try {
       for await (const loc of this._db.listLocations()) {
         const location = await this._summarizeWeatherHistory(loc);
@@ -93,11 +106,40 @@ export class BeckyBot {
     }
   }
 
-  _whereToGo(req: WhereToGoRequest) {
-    this._socket.emit(req.requestId, {error: ErrorCode.NOT_IMPLEMENTED});
+  private async _whereToGo({requestId, where}: WhereToGoRequest) {
+    try {
+      const [location] = await geocodeLocation(where);
+      if (!location) {
+        this._socket.emit(
+          requestId,
+          {error: ErrorCode.NOT_FOUND, message: `Failed to geocode "${where}"`}
+        );
+        return;
+      }
+      const min: Coordinates = {
+        lat: location.lat - MAX_OFFSET,
+        lon: location.lon - MAX_OFFSET
+      };
+      const max: Coordinates = {
+        lat: location.lat + MAX_OFFSET,
+        lon: location.lon + MAX_OFFSET
+      };
+      for await (const loc of this._db.listLocationsWithin(min, max)) {
+        if (haversine(location, loc) > 300000) continue;
+        const locationWithWeather = await this._summarizeWeatherHistory(loc);
+        if (badWeatherHistory(locationWithWeather)) continue;
+        locationWithWeather.forecast = await this._summarizeForecast(loc);
+
+        this._socket.emit(`${requestId}_location`, locationWithWeather);
+      }
+      this._socket.emit(requestId);
+    } catch (err) {
+      console.error('Failed to find where to go:', err);
+      this._socket.emit(requestId, { error: ErrorCode.INTERNAL });
+    }
   }
 
-  async _summarizeWeatherHistory(loc: Location): Promise<LocationResponse> {
+  private async _summarizeWeatherHistory(loc: Location): Promise<LocationResponse> {
     const aDayAgo = dayjs().subtract(1, 'day').unix();
     const aWeekAgo = dayjs().subtract(1, 'week').unix();
     const aMonthAgo = dayjs().subtract(4, 'weeks').unix();
@@ -130,4 +172,44 @@ export class BeckyBot {
     if (snow.month) res.snow = snow;
     return res;
   }
+
+  private async _summarizeForecast(
+    loc: Coordinates
+  ): Promise<ForecastSummary | null> {
+    const forecast = await getForecast(loc.lat, loc.lon);
+    if (!forecast.hourly) return null;
+
+    const summary: ForecastSummary = {rain: 0, snow: 0};
+    const maxTime = dayjs().add(48, 'hours').unix();
+    for (const hour of forecast.hourly) {
+      if (hour.dt > maxTime) continue;
+      summary.rain += hour.rain?.['1h'] || 0;
+      summary.snow += hour.snow?.['1h'] || 0;
+    }
+    return summary;
+  }
+}
+
+function toRadians(deg: number): number {
+  return deg * (Math.PI / 180);
+}
+
+function haversine(a: Coordinates, b: Coordinates): number {
+  const φa = toRadians(a.lat);
+  const φb = toRadians(b.lat);
+  const Δφ = toRadians((b.lat - a.lat));
+  const Δλ = toRadians((b.lon - a.lon));
+
+  const n =
+    Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+    Math.cos(φa) * Math.cos(φb) *
+    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(n), Math.sqrt(1 - n));
+  return EARTH_RADIUS * c;
+}
+
+function badWeatherHistory({rain, snow}: LocationResponse): boolean {
+  if (rain?.day > 10) return true;
+  if (snow?.day > 10 || snow?.week > 100) return true;
+  return false;
 }

@@ -8,6 +8,11 @@ type Parameter = number | string;
 const SCHEMA_VERSION = 1;
 const SCHEMA_DIR = './src/schema';
 
+export interface Coordinates {
+  lat: number;
+  lon: number;
+}
+
 interface LocationPartial {
   name: string;
   lat: number;
@@ -136,6 +141,28 @@ export class Database {
         GROUP BY location_id
       ) AS latest USING (location_id)
     `);
+  }
+
+  listLocationsWithin(
+    lowCorner: Coordinates,
+    highCorner: Coordinates
+  ): AsyncIterable<Location> {
+    return this._each<Location>(`
+      SELECT
+        l.location_id AS id,
+        l.name,
+        l.lat,
+        l.lon,
+        latest.weather_time AS lastWeatherTime
+      FROM locations AS l
+      LEFT JOIN (
+        SELECT location_id, MAX(weather_time) AS weather_time
+        FROM weather_hourly_history
+        GROUP BY location_id
+      ) AS latest USING (location_id)
+      WHERE l.lat > ? AND l.lat < ?
+      AND l.lon > ? AND l.lon < ?
+    `, [lowCorner.lat, highCorner.lat, lowCorner.lon, highCorner.lon]);
   }
 
   async getLocation(idOrName: string): Promise<Location> {
