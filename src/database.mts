@@ -1,12 +1,9 @@
 import { promises as fs } from 'node:fs';
 import sqlite from 'sqlite3';
 
-import { CurrentWeather } from './openweather.mjs';
+import { CurrentWeather, HourWeather } from './openweather.mjs';
 
 type Parameter = number | string;
-
-const SCHEMA_VERSION = 1;
-const SCHEMA_DIR = './src/schema';
 
 export interface Coordinates {
   lat: number;
@@ -25,9 +22,17 @@ export interface Location extends LocationPartial {
   lat: number;
   lon: number;
   lastWeatherTime?: number;
+  oldestForecastTime?: number;
 }
 
 interface LocationWeather {
+  locationId: string;
+  time: number;
+  rain: number;
+  snow: number;
+}
+
+interface LocationForecast {
   locationId: string;
   time: number;
   rain: number;
@@ -40,6 +45,13 @@ interface WeatherBlobV1 {
 }
 
 type WeatherBlob = WeatherBlobV1;
+
+interface ForecastBlobV1 {
+  version: 1;
+  forecast: HourWeather[]
+}
+
+type ForecastBlob = ForecastBlobV1;
 
 interface InvertedPromise<T> {
   promise: Promise<IteratorResult<T>>;
@@ -54,6 +66,29 @@ interface InsertResult {
 interface UpdateResult {
   affectedRowCount: number;
 }
+
+const SCHEMA_VERSION = 2;
+const SCHEMA_DIR = './src/schema';
+const SELECT_LOCATION_QUERY = `
+  SELECT
+    l.location_id AS id,
+    l.name,
+    l.lat,
+    l.lon,
+    history.weather_time AS lastWeatherTime,
+    forecast.forecast_time AS oldestForecastTime
+  FROM locations AS l
+  LEFT JOIN (
+    SELECT location_id, MAX(weather_time) AS weather_time
+    FROM weather_hourly_history
+    GROUP BY location_id
+  ) AS history USING (location_id)
+  LEFT JOIN (
+    SELECT location_id, MIN(forecast_time) AS forecast_time
+    FROM weather_hourly_forecast
+    GROUP BY location_id
+  ) AS forecast USING (location_id)
+`;
 
 class EachRowIterator<T> implements AsyncIterator<T> {
   private readonly _nextPromises: InvertedPromise<T>[] = [];
@@ -127,20 +162,7 @@ export class Database {
   }
 
   listLocations(): AsyncIterable<Location> {
-    return this._each<Location>(`
-      SELECT
-        l.location_id AS id,
-        l.name,
-        l.lat,
-        l.lon,
-        latest.weather_time AS lastWeatherTime
-      FROM locations AS l
-      LEFT JOIN (
-        SELECT location_id, MAX(weather_time) AS weather_time
-        FROM weather_hourly_history
-        GROUP BY location_id
-      ) AS latest USING (location_id)
-    `);
+    return this._each<Location>(SELECT_LOCATION_QUERY);
   }
 
   listLocationsWithin(
@@ -148,18 +170,7 @@ export class Database {
     highCorner: Coordinates
   ): AsyncIterable<Location> {
     return this._each<Location>(`
-      SELECT
-        l.location_id AS id,
-        l.name,
-        l.lat,
-        l.lon,
-        latest.weather_time AS lastWeatherTime
-      FROM locations AS l
-      LEFT JOIN (
-        SELECT location_id, MAX(weather_time) AS weather_time
-        FROM weather_hourly_history
-        GROUP BY location_id
-      ) AS latest USING (location_id)
+      ${SELECT_LOCATION_QUERY}
       WHERE l.lat > ? AND l.lat < ?
       AND l.lon > ? AND l.lon < ?
     `, [lowCorner.lat, highCorner.lat, lowCorner.lon, highCorner.lon]);
@@ -169,18 +180,7 @@ export class Database {
     // IDs are `lat,lon` fixed to 2 decimals of precision.
     const isId = /^-?\d+\.\d\d,-?\d+\.\d\d$/.test(idOrName);
     return this._get<Location>(`
-      SELECT
-        l.location_id AS id,
-        l.name,
-        l.lat,
-        l.lon,
-        latest.weather_time AS lastWeatherTime
-      FROM locations AS l
-      LEFT JOIN (
-        SELECT location_id, MAX(weather_time) AS weather_time
-        FROM weather_hourly_history
-        GROUP BY location_id
-      ) AS latest USING (location_id)
+      ${SELECT_LOCATION_QUERY}
       WHERE ${isId ? 'location_id' : 'name'} = ?
       LIMIT 1
     `, [idOrName]);
@@ -234,14 +234,67 @@ export class Database {
     ]);
   }
 
-  async _initialize(): Promise<void> {
+  listForecast(locationId: string): AsyncIterable<LocationForecast> {
+    return this._each<LocationForecast>(`
+      SELECT
+        location_id AS locationId,
+        forecast_time AS time,
+        rain_mm AS rain,
+        snow_mm AS snow
+      FROM weather_hourly_forecast
+      WHERE location_id = ?
+      ORDER BY forecast_time ASC
+    `);
+  }
+
+  async setForecast(
+    locationId: string,
+    forecast: HourWeather[]
+  ): Promise<void> {
+    try {
+      await this._serialize(() => {
+        const promises: Promise<any>[] = [];
+        promises.push(this._exec('BEGIN IMMEDIATE TRANSACTION'));
+        promises.push(this._run(
+          'DELETE FROM weather_hourly_forecast WHERE location_id = ?',
+          [locationId]
+        ));
+        for (const hour of forecast) {
+          promises.push(this._run(`
+            INSERT INTO weather_hourly_forecast (
+              location_id,
+              forecast_time,
+              forecast,
+              temperature,
+              rain_mm,
+              snow_mm
+            ) VALUES ( ?, ?, ?, ?, ?, ? )
+          `, [
+            locationId,
+            hour.dt,
+            JSON.stringify({version: 1, forecast: hour}),
+            hour.temp,
+            hour.rain?.['1h'] || 0,
+            hour.snow?.['1h'] || 0
+          ]));
+        }
+        promises.push(this._exec('COMMIT TRANSACTION'));
+        return promises;
+      });
+    } catch (err) {
+      console.error('Failed to update forecast for', locationId, err);
+      await this._exec('ROLLBACK TRANSACTION');
+    }
+  }
+
+  private async _initialize(): Promise<void> {
     const schemaVersion = await this._schemaVersion();
     for (let i = schemaVersion; i < SCHEMA_VERSION; ++i) {
       await this._updateSchema(i + 1);
     }
   }
 
-  async _schemaVersion(): Promise<number> {
+  private async _schemaVersion(): Promise<number> {
     const pragmaVersion = (
       await this._get<{schema_version: number}>('PRAGMA schema_version')
     ).schema_version;
@@ -259,22 +312,22 @@ export class Database {
     }
   }
 
-  _each<T>(query: string, params?: Parameter[]): AsyncIterable<T> {
+  private _each<T>(query: string, params?: Parameter[]): AsyncIterable<T> {
     return {
       [Symbol.asyncIterator]:
         () => new EachRowIterator<T>(this._db, query, params)
     };
   }
 
-  _exec(query: string): Promise<void> {
+  private _exec(query: string): Promise<void> {
     return _toPromise((cb) => this._db.exec(query, cb));
   }
 
-  _get<T>(query: string, params?: Parameter[]): Promise<T> {
+  private _get<T>(query: string, params?: Parameter[]): Promise<T> {
     return _toPromise<T>((cb) => this._db.get<T>(query, params, cb));
   }
 
-  _run<T extends (InsertResult | UpdateResult)>(
+  private _run<T extends (InsertResult | UpdateResult)>(
     query: string,
     params?: Parameter[]
   ): Promise<T> {
@@ -292,7 +345,13 @@ export class Database {
     });
   }
 
-  async _updateSchema(i: number): Promise<void> {
+  private async _serialize(f: () => Promise<any>[]): Promise<void> {
+    let promises = [];
+    this._db.serialize(() => { promises = f(); });
+    await Promise.all(promises);
+  }
+
+  private async _updateSchema(i: number): Promise<void> {
     const versionFile =
       await fs.readFile(`${SCHEMA_DIR}/version-${i}.sql`, {encoding: 'utf8'});
     console.log(versionFile);

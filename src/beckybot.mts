@@ -2,11 +2,13 @@ import dayjs from 'dayjs';
 import { Socket } from 'socket.io-client';
 
 import { Coordinates, Database, Location } from './database.mjs';
-import { geocodeLocation, getForecast } from './openweather.mjs';
+import { geocodeLocation, getForecast, getHistorical } from './openweather.mjs';
 
 const EARTH_RADIUS = 6378137;
 const MAX_OFFSET = 2.5;  // +/- 2.5 degrees
 const SEARCH_RADIUS = 300000;  // 300km
+const HOUR = 3600;
+const MAX_FETCH_WINDOW = 48 * HOUR;  // 48 hours in seconds.
 
 enum ErrorCode {
   NOT_FOUND = 404,
@@ -71,6 +73,39 @@ export class BeckyBot {
 
   wait(): Promise<void> { return this._waitPromise; }
 
+  async fetchAllHistory() {
+    const endTime = hourStart();
+    for await (const location of this._db.listLocations()) {
+      console.log(location.id, location.name, location.lastWeatherTime);
+      await this._updateHistory(location, endTime);
+    }
+  }
+
+  private async _updateHistory(location: Location, endTime?: number) {
+    if (!endTime) endTime = hourStart();
+    const beginTime = endTime - MAX_FETCH_WINDOW;
+    const lastTime = (location.lastWeatherTime ?? -Infinity);
+    for (
+      let time = Math.max(beginTime, lastTime + HOUR);
+      time < endTime;
+      time += HOUR
+    ) {
+      const weather = await getHistorical(location.lat, location.lon, time);
+      await this._db.insertWeatherHistory(location.id, time, weather.data[0]);
+    }
+  }
+
+  private async _updateForecast(location: Location) {
+    // Skip updating if the forecast isn't too old.
+    if (location?.oldestForecastTime > dayjs().subtract(2, 'hours').unix()) {
+      return;
+    }
+    const forecast = await getForecast(location.lat, location.lon);
+    if (forecast.hourly) {
+      await this._db.setForecast(location.id, forecast.hourly);
+    }
+  }
+
   private async _addLocation(req: AddLocationRequest): Promise<void> {
     try {
       await this._db.insertLocation(req);
@@ -116,6 +151,7 @@ export class BeckyBot {
         );
         return;
       }
+      console.log(location.name, location.state, location.country);
       const min: Coordinates = {
         lat: location.lat - MAX_OFFSET,
         lon: location.lon - MAX_OFFSET
@@ -125,7 +161,7 @@ export class BeckyBot {
         lon: location.lon + MAX_OFFSET
       };
       for await (const loc of this._db.listLocationsWithin(min, max)) {
-        if (haversine(location, loc) > 300000) continue;
+        if (haversine(location, loc) > SEARCH_RADIUS) continue;
         const locationWithWeather = await this._summarizeWeatherHistory(loc);
         if (badWeatherHistory(locationWithWeather)) continue;
         locationWithWeather.forecast = await this._summarizeForecast(loc);
@@ -139,7 +175,12 @@ export class BeckyBot {
     }
   }
 
-  private async _summarizeWeatherHistory(loc: Location): Promise<LocationResponse> {
+  private async _summarizeWeatherHistory(
+    loc: Location
+  ): Promise<LocationResponse> {
+    // Update the stored history. This is a no-op if the history is up to date.
+    await this._updateHistory(loc);
+
     const aDayAgo = dayjs().subtract(1, 'day').unix();
     const aWeekAgo = dayjs().subtract(1, 'week').unix();
     const aMonthAgo = dayjs().subtract(4, 'weeks').unix();
@@ -174,20 +215,23 @@ export class BeckyBot {
   }
 
   private async _summarizeForecast(
-    loc: Coordinates
+    loc: Location
   ): Promise<ForecastSummary | null> {
-    const forecast = await getForecast(loc.lat, loc.lon);
-    if (!forecast.hourly) return null;
+    await this._updateForecast(loc);
 
     const summary: ForecastSummary = {rain: 0, snow: 0};
     const maxTime = dayjs().add(48, 'hours').unix();
-    for (const hour of forecast.hourly) {
-      if (hour.dt > maxTime) continue;
-      summary.rain += hour.rain?.['1h'] || 0;
-      summary.snow += hour.snow?.['1h'] || 0;
+    for await (const hour of this._db.listForecast(loc.id)) {
+      if (hour.time > maxTime) continue;
+      summary.rain += hour.rain;
+      summary.snow += hour.snow;
     }
     return summary;
   }
+}
+
+function hourStart(): number {
+  return dayjs().minute(0).second(0).unix();
 }
 
 function toRadians(deg: number): number {

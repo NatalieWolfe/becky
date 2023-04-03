@@ -48,7 +48,7 @@ interface MinuteWeather {
   precipitation: number;
 }
 
-interface HourWeather extends WeatherBase {
+export interface HourWeather extends WeatherBase {
   temp: number;
   feels_like: number;
   visibility: Meters;
