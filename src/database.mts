@@ -1,3 +1,4 @@
+import dayjs from 'dayjs';
 import { promises as fs } from 'node:fs';
 import sqlite from 'sqlite3';
 
@@ -176,7 +177,7 @@ export class Database {
     `, [lowCorner.lat, highCorner.lat, lowCorner.lon, highCorner.lon]);
   }
 
-  async getLocation(idOrName: string): Promise<Location> {
+  getLocation(idOrName: string): Promise<Location> {
     // IDs are `lat,lon` fixed to 2 decimals of precision.
     const isId = /^-?\d+\.\d\d,-?\d+\.\d\d$/.test(idOrName);
     return this._get<Location>(`
@@ -208,6 +209,17 @@ export class Database {
       WHERE location_id = ?
       AND weather_time >= ?
     `, [locationId, oldestTime]);
+  }
+
+  async getOldestForecast(locationId: string): Promise<number> {
+    const res = await this._get<{weather_time: number}>(`
+      SELECT weather_time
+      FROM weather_hourly_history
+      WHERE location_id = ?
+      ORDER BY weather_time ASC
+      LIMIT 1
+    `, [locationId]);
+    return res.weather_time;
   }
 
   async insertWeatherHistory(

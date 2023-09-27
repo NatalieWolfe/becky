@@ -81,6 +81,26 @@ export class BeckyBot {
     }
   }
 
+  async backfillHistory(limit: number) {
+    let selected: Location;
+    let youngestDate: number;
+    for await (const location of this._db.listLocations()) {
+      const date = await this._db.getOldestForecast(location.id);
+      if (!youngestDate || youngestDate < date) {
+        youngestDate = date;
+        selected = location;
+      }
+    }
+    if (!selected) return;
+    console.log('Backfilling', selected.name);
+
+    let time = youngestDate - HOUR;
+    for (let i = 0; i < limit; ++i, time -= HOUR) {
+      const weather = await getHistorical(selected.lat, selected.lon, time);
+      await this._db.insertWeatherHistory(selected.id, time, weather.data[0]);
+    }
+  }
+
   private async _updateHistory(location: Location, endTime?: number) {
     if (!endTime) endTime = hourStart();
     const beginTime = endTime - MAX_FETCH_WINDOW;

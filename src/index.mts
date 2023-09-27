@@ -7,6 +7,7 @@ import { BeckyBot } from './beckybot.mjs';
 import { Database } from './database.mjs';
 import { getSecret } from './secret.mjs';
 
+const BACKFILL_LIMIT = 500;
 const FETCH_DELAY_HOURS = 24;
 const TELEGRAM_BOT_HOST = await getSecret('telegram_bot_host');
 
@@ -29,7 +30,10 @@ function scheduleHistoryFetching(): NodeJS.Timeout {
   console.log(`Next history fetch ${time.fromNow()} at ${time.format()}`);
   return setTimeout(async () => {
     try {
-      await beckyBot.fetchAllHistory();
+      await Promise.all([
+        beckyBot.fetchAllHistory(),
+        beckyBot.backfillHistory(BACKFILL_LIMIT)
+      ]);
     } catch (err) {
       console.error('Failed to fetch history:', err);
     }
