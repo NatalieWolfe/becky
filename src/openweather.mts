@@ -125,38 +125,43 @@ interface GeocodeResponse {
   };
 }
 
-export function getForecast(
-  lat: number,
-  lon: number
-): Promise<ForecastResponse> {
-  return _callApi<ForecastResponse>(
-    '/data/3.0/onecall',
-    { lat, lon, exclude: 'current,minutely' }
-  );
-}
+export class OpenWeather {
+  getForecast(
+    lat: number,
+    lon: number
+  ): Promise<ForecastResponse> {
+    return this._callApi<ForecastResponse>(
+      '/data/3.0/onecall',
+      { lat, lon, exclude: 'current,minutely' }
+    );
+  }
 
-export function getHistorical(
-  lat: number,
-  lon: number,
-  dt: number
-): Promise<HistoryResponse> {
-  return _callApi<HistoryResponse>(
-    '/data/3.0/onecall/timemachine',
-    { lat, lon, dt }
-  );
-}
+  getHistorical(
+    lat: number,
+    lon: number,
+    dt: number
+  ): Promise<HistoryResponse> {
+    return this._callApi<HistoryResponse>(
+      '/data/3.0/onecall/timemachine',
+      { lat, lon, dt }
+    );
+  }
 
-export function geocodeLocation(query: string): Promise<GeocodeResponse[]> {
-  return _callApi<GeocodeResponse[]>('/geo/1.0/direct', {q: query, limit: 1});
-}
+  geocodeLocation(query: string): Promise<GeocodeResponse[]> {
+    return this._callApi<GeocodeResponse[]>(
+      '/geo/1.0/direct',
+      {q: query, limit: 1}
+    );
+  }
 
-async function _callApi<T>(endpoint: string, params: any): Promise<T> {
-  const appid = await getSecret('openweather_api_key');
-  params.appid = appid;
-  params.units = 'metric';
-  const res =
-    await axios.get<T>(`https://${OPENWEATHER_HOST}${endpoint}`, { params });
-  if (res.status === 200) return res.data;
-  console.error(res.status, res.data);
-  throw new Error(`Failed to get ${endpoint}: ${res.status}`);
+  private async _callApi<T>(endpoint: string, params: any): Promise<T> {
+    const appid = await getSecret('openweather_api_key');
+    params.appid = appid;
+    params.units = 'metric';
+    const res =
+      await axios.get<T>(`https://${OPENWEATHER_HOST}${endpoint}`, { params });
+    if (res.status === 200) return res.data;
+    console.error(res.status, res.data);
+    throw new Error(`Failed to get ${endpoint}: ${res.status}`);
+  }
 }

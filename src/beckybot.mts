@@ -2,13 +2,12 @@ import dayjs from 'dayjs';
 import { Socket } from 'socket.io-client';
 
 import { Coordinates, Database, Location } from './database.mjs';
-import { geocodeLocation, getForecast, getHistorical } from './openweather.mjs';
+import { OpenWeather } from './openweather.mjs';
+import { WeatherLoader } from './weather_loader.mjs';
 
 const EARTH_RADIUS = 6378137;
 const MAX_OFFSET = 2.5;  // +/- 2.5 degrees
 const SEARCH_RADIUS = 300000;  // 300km
-const HOUR = 3600;
-const MAX_FETCH_WINDOW = 48 * HOUR;  // 48 hours in seconds.
 
 enum ErrorCode {
   NOT_FOUND = 404,
@@ -59,7 +58,9 @@ export class BeckyBot {
 
   constructor(
     private readonly _db: Database,
-    private readonly _socket: Socket
+    private readonly _socket: Socket,
+    private readonly _loader: WeatherLoader,
+    private readonly _weather: OpenWeather
   ) {
     this._waitPromise = new Promise<void>((resolve, reject) => {
       this._waitResolve = resolve;
@@ -73,54 +74,13 @@ export class BeckyBot {
 
   wait(): Promise<void> { return this._waitPromise; }
 
-  async fetchAllHistory() {
-    const endTime = hourStart();
-    for await (const location of this._db.listLocations()) {
-      console.log(location.id, location.name, location.lastWeatherTime);
-      await this._updateHistory(location, endTime);
-    }
-  }
-
-  async backfillHistory(limit: number) {
-    let selected: Location;
-    let youngestDate: number;
-    for await (const location of this._db.listLocations()) {
-      const date = await this._db.getOldestForecast(location.id);
-      if (!youngestDate || youngestDate < date) {
-        youngestDate = date;
-        selected = location;
-      }
-    }
-    if (!selected) return;
-    console.log('Backfilling', selected.name);
-
-    let time = youngestDate - HOUR;
-    for (let i = 0; i < limit; ++i, time -= HOUR) {
-      const weather = await getHistorical(selected.lat, selected.lon, time);
-      await this._db.insertWeatherHistory(selected.id, time, weather.data[0]);
-    }
-  }
-
-  private async _updateHistory(location: Location, endTime?: number) {
-    if (!endTime) endTime = hourStart();
-    const beginTime = endTime - MAX_FETCH_WINDOW;
-    const lastTime = (location.lastWeatherTime ?? -Infinity);
-    for (
-      let time = Math.max(beginTime, lastTime + HOUR);
-      time < endTime;
-      time += HOUR
-    ) {
-      const weather = await getHistorical(location.lat, location.lon, time);
-      await this._db.insertWeatherHistory(location.id, time, weather.data[0]);
-    }
-  }
-
   private async _updateForecast(location: Location) {
     // Skip updating if the forecast isn't too old.
     if (location?.oldestForecastTime > dayjs().subtract(2, 'hours').unix()) {
       return;
     }
-    const forecast = await getForecast(location.lat, location.lon);
+    const forecast =
+      await this._weather.getForecast(location.lat, location.lon);
     if (forecast.hourly) {
       await this._db.setForecast(location.id, forecast.hourly);
     }
@@ -163,7 +123,7 @@ export class BeckyBot {
 
   private async _whereToGo({requestId, where}: WhereToGoRequest) {
     try {
-      const [location] = await geocodeLocation(where);
+      const [location] = await this._weather.geocodeLocation(where);
       if (!location) {
         this._socket.emit(
           requestId,
@@ -199,7 +159,7 @@ export class BeckyBot {
     loc: Location
   ): Promise<LocationResponse> {
     // Update the stored history. This is a no-op if the history is up to date.
-    await this._updateHistory(loc);
+    await this._loader.updateHistory(loc);
 
     const aDayAgo = dayjs().subtract(1, 'day').unix();
     const aWeekAgo = dayjs().subtract(1, 'week').unix();
@@ -248,10 +208,6 @@ export class BeckyBot {
     }
     return summary;
   }
-}
-
-function hourStart(): number {
-  return dayjs().minute(0).second(0).unix();
 }
 
 function toRadians(deg: number): number {
