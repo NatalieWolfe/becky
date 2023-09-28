@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS locations (
 CREATE TABLE IF NOT EXISTS weather_hourly_history (
   location_id   VARCHAR(32) NOT NULL REFERENCES locations (location_id),
   weather_time  DATETIME NOT NULL,
-  weather       TEXT NOT NULL,
+  weather       JSON NOT NULL,
   temperature   REAL NOT NULL,
   rain_mm       REAL NOT NULL,
   snow_mm       REAL NOT NULL,

@@ -12,7 +12,7 @@ export class WeatherLoader {
 
   async fetchAllHistory() {
     const endTime = hourStart();
-    for await (const location of this._db.listLocations()) {
+    for await (const [location] of this._db.listLocations()) {
       console.log(location.id, location.name, location.lastWeatherTime);
       await this.updateHistory(location, endTime);
     }
@@ -36,7 +36,7 @@ export class WeatherLoader {
   async backfillHistory(limit: number) {
     let selected: Location;
     let youngestDate: number;
-    for await (const location of this._db.listLocations()) {
+    for await (const [location] of this._db.listLocations()) {
       const date = await this._db.getOldestForecast(location.id);
       if (!youngestDate || youngestDate < date) {
         youngestDate = date;

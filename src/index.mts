@@ -8,7 +8,7 @@ import { WeatherLoader } from './weather_loader.mjs';
 
 const TELEGRAM_BOT_HOST = await getSecret('telegram_bot_host');
 
-const db = await Database.open('becky.sqlite');
+const db = await Database.open();
 const socket = io(`http://${TELEGRAM_BOT_HOST}/becky`);
 const weather = new OpenWeather();
 const loader = new WeatherLoader(db, weather);

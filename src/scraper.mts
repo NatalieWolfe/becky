@@ -4,7 +4,7 @@ import { OpenWeather } from './openweather.mjs';
 
 const BACKFILL_LIMIT = 500;
 
-const db = await Database.open('becky.sqlite');
+const db = await Database.open();
 const loader = new WeatherLoader(db, new OpenWeather());
 
 try {

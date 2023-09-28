@@ -2,7 +2,7 @@
 CREATE TABLE IF NOT EXISTS weather_hourly_forecast (
   location_id   VARCHAR(32) NOT NULL REFERENCES locations (location_id),
   forecast_time DATETIME NOT NULL,
-  forecast      TEXT NOT NULL,
+  forecast      JSON NOT NULL,
   temperature   REAL NOT NULL,
   rain_mm       REAL NOT NULL,
   snow_mm       REAL NOT NULL,
