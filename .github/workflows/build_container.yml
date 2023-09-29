@@ -1,8 +1,11 @@
-name: Build and Push Docker Container
+name: Build Docker Container
 on:
   push:
     branches:
-      - 'release'
+      - 'main'
+  pull_request:
+    branches:
+      - 'main'
 jobs:
   docker:
     runs-on: ubuntu-latest
@@ -19,5 +22,4 @@ jobs:
       - name: Build
         uses: docker/build-push-action@v5
         with:
-          push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/becky:latest
+          push: false
