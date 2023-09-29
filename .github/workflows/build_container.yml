@@ -1,4 +1,4 @@
-name: Build and Push Docker Container
+name: Build Docker Container
 on:
   push:
     branches:
@@ -8,7 +8,7 @@ on:
       - 'main'
 jobs:
   docker:
-    runs-on: ubuntu-22
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
