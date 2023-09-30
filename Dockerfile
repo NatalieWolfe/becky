@@ -4,6 +4,8 @@ RUN adduser becky
 USER becky
 WORKDIR /becky
 
+ENV PGHOST postgres
+
 COPY --chown=becky:becky package.json .
 COPY --chown=becky:becky package-lock.json .
 RUN npm install

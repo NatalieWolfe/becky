@@ -15,3 +15,5 @@ try {
 } catch (err) {
   console.error('Failed to fetch history:', err);
 }
+
+db.close();

@@ -102,7 +102,7 @@ export class Database {
   static async open(database = DATABASE): Promise<Database> {
     const db = new Database(postgres({
       database,
-      password: await getSecret('postgress_password')
+      password: await getSecret('postgres_password')
     }));
     await db._initialize();
     return db;
@@ -168,6 +168,7 @@ export class Database {
     `.cursor();
   }
 
+  /** Fetches the Unix timestamp of the oldest forecast at the location. */
   async getOldestForecast(locationId: string): Promise<number> {
     const res = await this._sql<{weather_time: number}[]>`
       SELECT weather_time

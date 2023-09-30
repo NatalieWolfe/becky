@@ -9,5 +9,23 @@ services:
       - PGHOST=postgres
     volumes:
       - ./secrets:/becky/secrets
+  scrape:
+    build:
+      dockerfile: ./Dockerfile
+    depends_on:
+        - postgres
+    environment:
+      - PGHOST=postgres
+    volumes:
+      - ./secrets:/becky/secrets
+    command: ["npm", "run", "scrape"]
   postgres:
-    image: postgresql:16
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=becky
+      - POSTGRES_USER=becky
+      - POSTGRES_PASSWORD_FILE=/var/secrets/postgres_password
+    volumes:
+      - ./secrets:/var/secrets
+    ports:
+      - 5432:5432
