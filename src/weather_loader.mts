@@ -1,8 +1,8 @@
-import dayjs from "dayjs";
+import dayjs from 'dayjs';
 
-import { Database, Location } from "./database.mjs";
-import { OpenWeather } from "./openweather.mjs";
-import { Milliseconds, hourStart } from "./time_util.mjs";
+import { Database, Location } from './database.mjs';
+import { OpenWeather } from './openweather.mjs';
+import { Milliseconds, hourStart } from './time_util.mjs';
 
 const MAX_FETCH_WINDOW = 48 * Milliseconds.HOUR;  // 48 hours in seconds.
 
