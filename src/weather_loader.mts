@@ -1,3 +1,5 @@
+import dayjs from "dayjs";
+
 import { Database, Location } from "./database.mjs";
 import { OpenWeather } from "./openweather.mjs";
 import { Milliseconds, hourStart } from "./time_util.mjs";
@@ -12,6 +14,9 @@ export class WeatherLoader {
 
   async fetchAllHistory() {
     const endTime = hourStart();
+    console.log(
+      'Fetching until', dayjs.unix(endTime).format('YYYY-MM-DD HH:mm:ss')
+    );
     for await (const [location] of this._db.listLocations()) {
       console.log(location.id, location.name, location.lastWeatherTime);
       await this.updateHistory(location, endTime);
@@ -44,7 +49,10 @@ export class WeatherLoader {
       }
     }
     if (!selected) return;
-    console.log('Backfilling', selected.name);
+    console.log(
+      'Backfilling', selected.name, 'from',
+      dayjs.unix(youngestDate).format('YYYY-MM-DD')
+    );
 
     let time = youngestDate - Milliseconds.HOUR;
     for (let i = 0; i < limit; ++i, time -= Milliseconds.HOUR) {
