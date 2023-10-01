@@ -4,14 +4,12 @@ import postgres, { PendingQuery, Sql } from 'postgres';
 import { CurrentWeather, HourWeather } from './openweather.mjs';
 import { getSecret } from './secret.mjs';
 
-type Parameter = number | string;
-
 export interface Coordinates {
   lat: number;
   lon: number;
 }
 
-interface LocationPartial {
+export interface LocationPartial {
   name: string;
   lat: number;
   lon: number;
@@ -26,7 +24,7 @@ export interface Location extends LocationPartial {
   oldestForecastTime?: number;
 }
 
-interface LocationWeather {
+export interface LocationWeather {
   locationId: string;
   time: number;
   rain: number;
@@ -45,7 +43,7 @@ interface WeatherBlobV1 {
   current: CurrentWeather;
 }
 
-type WeatherBlob = WeatherBlobV1;
+export type WeatherBlob = WeatherBlobV1;
 
 interface ForecastBlobV1 {
   version: 1;
@@ -53,12 +51,6 @@ interface ForecastBlobV1 {
 }
 
 type ForecastBlob = ForecastBlobV1;
-
-interface InvertedPromise<T> {
-  promise: Promise<IteratorResult<T>>;
-  resolve: (row: IteratorResult<T>) => void;
-  reject: (err: Error) => void;
-}
 
 interface InsertResult {
   lastId: number;
@@ -80,8 +72,8 @@ function selectLocationQuery(sql: Sql): PendingQuery<Location[]> {
       l.name,
       l.lat,
       l.lon,
-      history.weather_time AS lastWeatherTime,
-      forecast.forecast_time AS oldestForecastTime
+      history.weather_time AS last_weather_time,
+      forecast.forecast_time AS oldest_forecast_time
     FROM locations AS l
     LEFT JOIN (
       SELECT location_id, MAX(weather_time) AS weather_time
@@ -102,7 +94,8 @@ export class Database {
   static async open(database = DATABASE): Promise<Database> {
     const db = new Database(postgres({
       database,
-      password: await getSecret('postgres_password')
+      password: await getSecret('postgres_password'),
+      transform: { column: { from: postgres.toCamel } }
     }));
     await db._initialize();
     return db;
@@ -158,7 +151,7 @@ export class Database {
   ): AsyncIterable<LocationWeather[]> {
     return this._sql<LocationWeather[]>`
       SELECT
-        location_id AS locationId,
+        location_id,
         weather_time AS time,
         rain_mm AS rain,
         snow_mm AS snow
@@ -170,14 +163,14 @@ export class Database {
 
   /** Fetches the Unix timestamp of the oldest forecast at the location. */
   async getOldestForecast(locationId: string): Promise<number> {
-    const res = await this._sql<{weather_time: number}[]>`
+    const res = await this._sql<{weatherTime: number}[]>`
       SELECT weather_time
       FROM weather_hourly_history
       WHERE location_id = ${locationId}
       ORDER BY weather_time ASC
       LIMIT 1
     `;
-    return res[0]?.weather_time;
+    return res[0]?.weatherTime;
   }
 
   async insertWeatherHistory(
@@ -207,7 +200,7 @@ export class Database {
   listForecast(locationId: string): AsyncIterable<LocationForecast[]> {
     return this._sql<LocationForecast[]>`
       SELECT
-        location_id AS locationId,
+        location_id,
         forecast_time AS time,
         rain_mm AS rain,
         snow_mm AS snow
@@ -252,14 +245,14 @@ export class Database {
   }
 
   private async _schemaVersion(): Promise<number> {
-    const table_check = await this._sql<{table_exists: boolean}[]>`
+    const table_check = await this._sql<{tableExists: boolean}[]>`
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
         WHERE table_name = 'becky_schema'
       ) AS table_exists
     `;
-    if (!table_check[0]?.table_exists) return 0;
+    if (!table_check[0]?.tableExists) return 0;
 
     const results = await this._sql<{version: number}[]>`
         SELECT version FROM becky_schema
