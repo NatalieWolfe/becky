@@ -1,0 +1,50 @@
+version: "3.8"
+services:
+  becky:
+    build:
+      dockerfile: ./Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PGHOST=postgres
+    volumes:
+      - ./secrets:/becky/secrets
+  scrape:
+    build:
+      dockerfile: ./Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PGHOST=postgres
+    volumes:
+      - ./secrets:/becky/secrets
+    command: ["npm", "run", "scrape"]
+  migrate:
+    build:
+      dockerfile: ./Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PGHOST=postgres
+    volumes:
+      - ./secrets:/becky/secrets
+      - ./becky.sqlite:/becky/becky.sqlite:rw
+    command: ["npm", "run", "migrate"]
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_DB=becky
+      - POSTGRES_USER=becky
+      - POSTGRES_PASSWORD_FILE=/var/secrets/postgres_password
+    volumes:
+      - ./secrets:/var/secrets
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5

@@ -110,7 +110,7 @@ export class BeckyBot {
 
   private async _listLocations(req: ListLocationsRequest): Promise<void> {
     try {
-      for await (const loc of this._db.listLocations()) {
+      for await (const [loc] of this._db.listLocations()) {
         const location = await this._summarizeWeatherHistory(loc);
         this._socket.emit(`${req.requestId}_location`, location);
       }
@@ -140,7 +140,7 @@ export class BeckyBot {
         lat: location.lat + MAX_OFFSET,
         lon: location.lon + MAX_OFFSET
       };
-      for await (const loc of this._db.listLocationsWithin(min, max)) {
+      for await (const [loc] of this._db.listLocationsWithin(min, max)) {
         if (haversine(location, loc) > SEARCH_RADIUS) continue;
         const locationWithWeather = await this._summarizeWeatherHistory(loc);
         if (badWeatherHistory(locationWithWeather)) continue;
@@ -174,7 +174,7 @@ export class BeckyBot {
       week: 0,
       month: 0
     };
-    for await (const weather of this._db.listWeather(loc.id, aMonthAgo)) {
+    for await (const [weather] of this._db.listWeather(loc.id, aMonthAgo)) {
       if (weather.time > aDayAgo) {
         rain.day += weather.rain;
         snow.day += weather.snow;
@@ -201,7 +201,7 @@ export class BeckyBot {
 
     const summary: ForecastSummary = {rain: 0, snow: 0};
     const maxTime = dayjs().add(48, 'hours').unix();
-    for await (const hour of this._db.listForecast(loc.id)) {
+    for await (const [hour] of this._db.listForecast(loc.id)) {
       if (hour.time > maxTime) continue;
       summary.rain += hour.rain;
       summary.snow += hour.snow;
