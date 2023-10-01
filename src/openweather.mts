@@ -30,6 +30,8 @@ interface WeatherBase {
   wind_gust?: number;
   wind_deg: number;
   weather: [ WeatherCondition ];
+
+  toJSON: () => Object;
 }
 
 export interface CurrentWeather extends WeatherBase {
