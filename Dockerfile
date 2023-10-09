@@ -1,4 +1,4 @@
-FROM node:18 AS install
+FROM node:18
 
 RUN adduser becky
 USER becky
@@ -6,6 +6,7 @@ WORKDIR /becky
 
 ENV PGHOST postgres
 ENV SQLITE_DB_PATH becky.sqlite
+ENV SECRETS_DIR /becky/secrets
 
 COPY --chown=becky:becky package.json .
 COPY --chown=becky:becky package-lock.json .
