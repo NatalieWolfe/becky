@@ -21,18 +21,6 @@ services:
     volumes:
       - ./secrets:/becky/secrets
     command: ["npm", "run", "scrape"]
-  migrate:
-    build:
-      dockerfile: ./Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - PGHOST=postgres
-    volumes:
-      - ./secrets:/becky/secrets
-      - ./becky.sqlite:/becky/becky.sqlite:rw
-    command: ["npm", "run", "migrate"]
   postgres:
     image: postgres:16
     environment:
