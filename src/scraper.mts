@@ -19,4 +19,4 @@ try {
 }
 
 await db.close();
-await monitor.close();
+await monitor.close(/*force=*/true);
