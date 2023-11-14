@@ -1,9 +1,11 @@
 import { Database } from './database.mjs';
-import { WeatherLoader } from './weather_loader.mjs';
+import { Monitor } from './monitor.mjs';
 import { OpenWeather } from './openweather.mjs';
+import { WeatherLoader } from './weather_loader.mjs';
 
 const BACKFILL_LIMIT = 500;
 
+const monitor = new Monitor({ labels: { app: 'scraper' } });
 const db = await Database.open();
 const loader = new WeatherLoader(db, new OpenWeather());
 
@@ -16,4 +18,5 @@ try {
   console.error('Failed to fetch history:', err);
 }
 
-db.close();
+await db.close();
+await monitor.close();
