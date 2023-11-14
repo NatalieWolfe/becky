@@ -1,13 +1,30 @@
 import dayjs from 'dayjs';
+import { Counter, Histogram } from 'prom-client';
 import { Socket } from 'socket.io-client';
 
 import { Coordinates, Database, Location } from './database.mjs';
+import { time } from './monitor.mjs';
 import { OpenWeather } from './openweather.mjs';
 import { WeatherLoader } from './weather_loader.mjs';
 
 const EARTH_RADIUS = 6378137;
 const MAX_OFFSET = 2.5;  // +/- 2.5 degrees
 const SEARCH_RADIUS = 300000;  // 300km
+
+const requestCounter = new Counter({
+  name: 'requests_total',
+  help: 'Number of requests to the Becky bot.',
+  labelNames: ['endpoint']
+});
+const responseCounter = new Counter({
+  name: 'responses_total',
+  help: 'Number of responses sent back from Becky.'
+});
+const requestDuration = new Histogram({
+  name: 'request_duration_seconds',
+  help: 'Duration of requests to Becky.',
+  labelNames: ['endpoint']
+});
 
 enum ErrorCode {
   NOT_FOUND = 404,
@@ -67,9 +84,29 @@ export class BeckyBot {
       this._waitReject = reject;
     });
 
-    this._socket.on('addLocation', this._addLocation.bind(this));
-    this._socket.on('listLocations', this._listLocations.bind(this));
-    this._socket.on('whereToGo', this._whereToGo.bind(this));
+    this._socket.onAny((endpoint: string) => requestCounter.inc({ endpoint }));
+    this._socket.onAnyOutgoing(() => responseCounter.inc());
+    this._socket.on('addLocation', (...args: unknown[]) => {
+      time(
+        requestDuration,
+        { endpoint: 'addLocation' },
+        () => this._addLocation.apply(this, args)
+      );
+    });
+    this._socket.on('listLocations', (...args: unknown[]) => {
+      time(
+        requestDuration,
+        { endpoint: 'listLocations' },
+        () => this._listLocations.apply(this, args)
+      );
+    });
+    this._socket.on('whereToGo', (...args: unknown[]) => {
+      time(
+        requestDuration,
+        { endpoint: 'whereToGo' },
+        () => this._whereToGo.apply(this, args)
+      );
+    });
   }
 
   wait(): Promise<void> { return this._waitPromise; }
@@ -121,14 +158,14 @@ export class BeckyBot {
     }
   }
 
-  private async _whereToGo({requestId, where}: WhereToGoRequest) {
+  private async _whereToGo({ requestId, where }: WhereToGoRequest) {
     try {
       const [location] = await this._weather.geocodeLocation(where);
       if (!location) {
-        this._socket.emit(
-          requestId,
-          {error: ErrorCode.NOT_FOUND, message: `Failed to geocode "${where}"`}
-        );
+        this._socket.emit(requestId, {
+          error: ErrorCode.NOT_FOUND,
+          message: `Failed to geocode "${where}"`
+        });
         return;
       }
       console.log(location.name, location.state, location.country);
@@ -188,7 +225,7 @@ export class BeckyBot {
         snow.month += weather.snow;
       }
     }
-    const res: LocationResponse = {location: loc};
+    const res: LocationResponse = { location: loc };
     if (rain.month) res.rain = rain;
     if (snow.month) res.snow = snow;
     return res;
@@ -199,7 +236,7 @@ export class BeckyBot {
   ): Promise<ForecastSummary | null> {
     await this._updateForecast(loc);
 
-    const summary: ForecastSummary = {rain: 0, snow: 0};
+    const summary: ForecastSummary = { rain: 0, snow: 0 };
     const maxTime = dayjs().add(48, 'hours').unix();
     for await (const [hour] of this._db.listForecast(loc.id)) {
       if (hour.time > maxTime) continue;
@@ -228,7 +265,7 @@ function haversine(a: Coordinates, b: Coordinates): number {
   return EARTH_RADIUS * c;
 }
 
-function badWeatherHistory({rain, snow}: LocationResponse): boolean {
+function badWeatherHistory({ rain, snow }: LocationResponse): boolean {
   if (rain?.day > 10) return true;
   if (snow?.day > 10 || snow?.week > 100) return true;
   return false;
