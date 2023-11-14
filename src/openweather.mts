@@ -1,9 +1,17 @@
 import axios from 'axios';
+import { Histogram } from 'prom-client';
 
+import { time } from './monitor.mjs';
 import { getSecret } from './secret.mjs';
 
 export const MAX_VISIBILITY = 10000;
 const OPENWEATHER_HOST = 'api.openweathermap.org';
+
+const openweatherDuration = new Histogram({
+  name: 'openweather_request_duration_seconds',
+  help: 'Duration of API calls to OpenWeather.',
+  labelNames: ['endpoint']
+});
 
 type Timestamp = number;
 type Percent100 = number; // 0 - 100
@@ -29,7 +37,7 @@ interface WeatherBase {
   wind_speed: number;
   wind_gust?: number;
   wind_deg: number;
-  weather: [ WeatherCondition ];
+  weather: [WeatherCondition];
 
   toJSON: () => Object;
 }
@@ -111,7 +119,7 @@ export interface HistoryResponse {
   lon: number;
   timezone: string;
   timezone_offset: number;
-  data: [ CurrentWeather ];
+  data: [CurrentWeather];
 }
 
 interface GeocodeResponse {
@@ -152,18 +160,22 @@ export class OpenWeather {
   geocodeLocation(query: string): Promise<GeocodeResponse[]> {
     return this._callApi<GeocodeResponse[]>(
       '/geo/1.0/direct',
-      {q: query, limit: 1}
+      { q: query, limit: 1 }
     );
   }
 
   private async _callApi<T>(endpoint: string, params: any): Promise<T> {
-    const appid = await getSecret('openweather_api_key');
-    params.appid = appid;
-    params.units = 'metric';
-    const res =
-      await axios.get<T>(`https://${OPENWEATHER_HOST}${endpoint}`, { params });
-    if (res.status === 200) return res.data;
-    console.error(res.status, res.data);
-    throw new Error(`Failed to get ${endpoint}: ${res.status}`);
+    return await time(openweatherDuration, { endpoint }, async () => {
+      const appid = await getSecret('openweather_api_key');
+      params.appid = appid;
+      params.units = 'metric';
+      const res = await axios.get<T>(
+        `https://${OPENWEATHER_HOST}${endpoint}`,
+        { params }
+      );
+      if (res.status === 200) return res.data;
+      console.error(res.status, res.data);
+      throw new Error(`Failed to get ${endpoint}: ${res.status}`);
+    });
   }
 }
