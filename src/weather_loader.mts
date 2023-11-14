@@ -1,4 +1,5 @@
 import dayjs from 'dayjs';
+import { Counter } from 'prom-client';
 
 import { Database, Location } from './database.mjs';
 import { OpenWeather } from './openweather.mjs';
@@ -6,11 +7,20 @@ import { Milliseconds, hourStart } from './time_util.mjs';
 
 const MAX_FETCH_WINDOW = 48 * Milliseconds.HOUR;  // 48 hours in seconds.
 
+const weatherFetchCounter = new Counter({
+  name: 'weather_fetch_total',
+  help: 'Count of new weather data points fetched.'
+});
+const backfillFetchCounter = new Counter({
+  name: 'weather_backfill_fetch_total',
+  help: 'Count of historical weather data points fetched.'
+});
+
 export class WeatherLoader {
   constructor(
     private readonly _db: Database,
     private readonly _weather: OpenWeather
-  ) {}
+  ) { }
 
   async fetchAllHistory() {
     const endTime = hourStart();
@@ -35,6 +45,7 @@ export class WeatherLoader {
       const weather =
         await this._weather.getHistorical(location.lat, location.lon, time);
       await this._db.insertWeatherHistory(location.id, time, weather.data[0]);
+      weatherFetchCounter.inc();
     }
   }
 
@@ -59,6 +70,7 @@ export class WeatherLoader {
       const weather =
         await this._weather.getHistorical(selected.lat, selected.lon, time);
       await this._db.insertWeatherHistory(selected.id, time, weather.data[0]);
+      backfillFetchCounter.inc();
     }
   }
 }
