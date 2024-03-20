@@ -2,7 +2,7 @@ import EventEmitter from 'node:events';
 import { Server, ServerResponse, createServer } from 'node:http';
 import { Histogram, collectDefaultMetrics, register } from 'prom-client';
 
-const DEFAULT_PORT = 4001;
+const DEFAULT_PORT = Number(process.env.METRICS_PORT) || 4001;
 const DEFAULT_HOSTNAME = 'localhost';
 
 interface MonitorOptions {
