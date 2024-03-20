@@ -2,6 +2,8 @@ import EventEmitter from 'node:events';
 import { Server, ServerResponse, createServer } from 'node:http';
 import { Histogram, collectDefaultMetrics, register } from 'prom-client';
 
+import { logger } from './logging.mjs';
+
 const DEFAULT_PORT = Number(process.env.METRICS_PORT) || 4001;
 const DEFAULT_HOSTNAME = 'localhost';
 
@@ -55,11 +57,13 @@ export class Monitor {
     return createServer(async (req, res) => {
       try {
         if (req.url === '/metrics') {
+          logger.info('Retrieving metrics.');
           res.setHeader('Content-Type', register.contentType);
           await end(res, await register.metrics());
           this._emitter.emit('metricsSent');
           return;
         }
+        logger.warn('Unknown request to metrics service.', { url: req.url });
         res.statusCode = 404;
         res.end('Not found');
       } catch (err) {

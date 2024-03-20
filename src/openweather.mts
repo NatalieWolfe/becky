@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { Histogram } from 'prom-client';
 
+import { logger } from './logging.mjs';
 import { time } from './monitor.mjs';
 import { getSecret } from './secret.mjs';
 
@@ -165,6 +166,7 @@ export class OpenWeather {
   }
 
   private async _callApi<T>(endpoint: string, params: any): Promise<T> {
+    logger.info('Calling OpenWeather', { endpoint });
     return await time(openweatherDuration, { endpoint }, async () => {
       const appid = await getSecret('openweather_api_key');
       params.appid = appid;
