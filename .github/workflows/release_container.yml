@@ -20,4 +20,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/becky:latest
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/becky:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/becky:${{ github.run_number }}
