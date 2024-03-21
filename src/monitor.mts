@@ -5,7 +5,7 @@ import { Histogram, collectDefaultMetrics, register } from 'prom-client';
 import { logger } from './logging.mjs';
 
 const DEFAULT_PORT = Number(process.env.METRICS_PORT) || 4001;
-const DEFAULT_HOSTNAME = 'localhost';
+const DEFAULT_HOSTNAME = '0.0.0.0';
 
 interface MonitorOptions {
   port?: number;
@@ -20,13 +20,19 @@ export class Monitor {
   private _closeProm?: Promise<void>;
 
   constructor({ port, hostname, labels }: MonitorOptions = {}) {
+    port = port ?? DEFAULT_PORT;
+    hostname = hostname ?? DEFAULT_HOSTNAME;
     this._server = this._startServer();
-    this._listeningProm = new Promise<void>((resolve) => {
-      this._server.listen(
-        port ?? DEFAULT_PORT,
-        hostname ?? DEFAULT_HOSTNAME,
-        resolve
+    this._listeningProm = (new Promise<void>((resolve) => {
+      this._server.listen(port, hostname, resolve);
+    })).then(() => {
+      logger.info('Metrics server listening.', { port, hostname });
+    }, (error) => {
+      logger.error(
+        'Failed to start metrics server.',
+        { port, hostname, error }
       );
+      throw error;
     });
     collectDefaultMetrics({ labels });
   }
