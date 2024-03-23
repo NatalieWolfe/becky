@@ -1,6 +1,6 @@
 import EventEmitter from 'node:events';
 import { Server, ServerResponse, createServer } from 'node:http';
-import { Histogram, collectDefaultMetrics, register } from 'prom-client';
+import { Gauge, Histogram, collectDefaultMetrics, register } from 'prom-client';
 
 import { logger } from './logging.mjs';
 
@@ -108,8 +108,14 @@ export function time<T, Labels extends string>(
   labels: Record<Labels, string | number>,
   func: () => T
 ): T;
+export function time<T>(metric: Gauge, func: () => T): T;
+export function time<T, Labels extends string>(
+  metric: Gauge<Labels>,
+  labels: Record<Labels, string | number>,
+  func: () => T
+): T;
 export function time<T>(
-  metric: Histogram,
+  metric: Histogram | Gauge,
   labels?: Record<string, string | number> | (() => T),
   func?: () => T
 ): T {
@@ -117,11 +123,30 @@ export function time<T>(
     func = labels as () => T;
     labels = null;
   }
+  if (metric instanceof Histogram) {
+    return timeHistogram(
+      metric,
+      labels as Record<string, string | number> | null,
+      func
+    );
+  } else {
+    return timeGauge(
+      metric,
+      labels as Record<string, string | number> | null,
+      func
+    );
+  }
+}
 
+function timeHistogram<T, Labels extends string>(
+  metric: Histogram<Labels>,
+  labels: Record<Labels, string | number> | null,
+  func: () => T
+): T {
   const start = Date.now();
   let record = labels ? () => {
     metric.observe(
-      labels as Record<string, string | number>,
+      labels as Partial<Record<string, string | number>>,
       (Date.now() - start) / 1000
     );
   } : () => {
@@ -137,6 +162,24 @@ export function time<T>(
     return res;
   } finally {
     if (record) record();
+  }
+}
+
+function timeGauge<T, Labels extends string>(
+  metric: Gauge<Labels>,
+  labels: Record<Labels, string | number> | null,
+  func: () => T
+): T {
+  let endTimer = metric.startTimer(labels);
+  try {
+    let res = func();
+    if (res instanceof Promise) {
+      res = res.finally(endTimer) as T;
+      endTimer = null;
+    }
+    return res;
+  } finally {
+    if (endTimer) endTimer();
   }
 }
 
