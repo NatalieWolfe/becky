@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import postgres, { PendingQuery, Sql } from 'postgres';
+import { Gauge, Histogram, linearBuckets } from 'prom-client';
 
 import { CurrentWeather, HourWeather } from './openweather.mjs';
 import { getSecret } from './secret.mjs';
@@ -89,7 +90,7 @@ function selectLocationQuery(sql: Sql): PendingQuery<Location[]> {
 }
 
 export class Database {
-  private constructor(private readonly _sql: Sql) {}
+  private constructor(private readonly _sql: Sql) { }
 
   static async open(database = DATABASE): Promise<Database> {
     const db = new Database(postgres({
@@ -102,7 +103,7 @@ export class Database {
   }
 
   async close() {
-    await this._sql.end({timeout: GRACEFUL_SHUTDOWN_SECONDS});
+    await this._sql.end({ timeout: GRACEFUL_SHUTDOWN_SECONDS });
   }
 
   listLocations(): AsyncIterable<Location[]> {
@@ -163,7 +164,7 @@ export class Database {
 
   /** Fetches the Unix timestamp of the oldest forecast at the location. */
   async getOldestForecast(locationId: string): Promise<number> {
-    const res = await this._sql<{weatherTime: number}[]>`
+    const res = await this._sql<{ weatherTime: number }[]>`
       SELECT weather_time
       FROM weather_hourly_history
       WHERE location_id = ${locationId}
@@ -189,7 +190,7 @@ export class Database {
       ) VALUES (
         ${locationId},
         ${time},
-        ${this._sql.json({version: 1, current: weather})},
+        ${this._sql.json({ version: 1, current: weather })},
         ${weather.temp},
         ${weather.rain?.['1h'] ?? 0},
         ${weather.snow?.['1h'] ?? 0}
@@ -222,13 +223,13 @@ export class Database {
         await sql`
           INSERT INTO weather_hourly_forecast
           ${sql(forecast.map((hour) => ({
-            location_id: locationId,
-            forecast_time: hour.dt,
-            forecast: sql.json({version: 1, forecast: hour}),
-            temperature: hour.temp,
-            rain_mm: hour.rain?.['1h'] ?? 0,
-            snow_mm: hour.snow?.['1h'] ?? 0
-          })))}
+          location_id: locationId,
+          forecast_time: hour.dt,
+          forecast: sql.json({ version: 1, forecast: hour }),
+          temperature: hour.temp,
+          rain_mm: hour.rain?.['1h'] ?? 0,
+          snow_mm: hour.snow?.['1h'] ?? 0
+        })))}
         `;
       });
     } catch (err) {
@@ -245,7 +246,7 @@ export class Database {
   }
 
   private async _schemaVersion(): Promise<number> {
-    const table_check = await this._sql<{tableExists: boolean}[]>`
+    const table_check = await this._sql<{ tableExists: boolean }[]>`
       SELECT EXISTS (
         SELECT 1
         FROM information_schema.tables
@@ -254,7 +255,7 @@ export class Database {
     `;
     if (!table_check[0]?.tableExists) return 0;
 
-    const results = await this._sql<{version: number}[]>`
+    const results = await this._sql<{ version: number }[]>`
         SELECT version FROM becky_schema
     `;
     return results[0]?.version ?? 0;
@@ -262,9 +263,48 @@ export class Database {
 
   private async _updateSchema(i: number): Promise<void> {
     const versionFile =
-      await fs.readFile(`${SCHEMA_DIR}/version-${i}.sql`, {encoding: 'utf8'});
+      await fs.readFile(`${SCHEMA_DIR}/version-${i}.sql`, { encoding: 'utf8' });
     console.log(versionFile);
     await this._sql.unsafe(versionFile);
+  }
+
+  // --- Metrics ---
+
+  private _locationGauge = new Gauge({
+    name: 'location_count',
+    help: 'Number of locations registered in the database.',
+    collect: () => this._setLocationGauge()
+  });
+
+  private _historyCounts = new Histogram({
+    name: 'weather_history_count',
+    help: 'Number of weather points in the history for each location.',
+    buckets: linearBuckets(0, 1000, 50),
+    collect: () => this._setHistoryCounts()
+  });
+
+  private async _setLocationGauge(): Promise<void> {
+    const count = await this._sql<{ locationCount: number }[]>`
+      SELECT COUNT(1) AS location_count FROM locations;
+    `;
+    this._locationGauge.set(count[0]?.locationCount ?? 0);
+  }
+
+  private async _setHistoryCounts(): Promise<void> {
+    const counts = this._sql<{ name: string, count: number }[]>`
+      SELECT
+        l.name AS name,
+        history.count
+      FROM locations AS l
+      LEFT JOIN (
+        SELECT location_id, COUNT(1) AS count
+        FROM weather_hourly_history
+        GROUP BY location_id
+      ) AS history USING (location_id)
+    `.cursor();
+    for await (const [{ count }] of counts) {
+      this._historyCounts.observe(count);
+    }
   }
 }
 
