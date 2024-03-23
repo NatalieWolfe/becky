@@ -220,16 +220,16 @@ export class Database {
         await sql`
           DELETE FROM weather_hourly_forecast WHERE location_id = ${locationId}
         `;
-        await sql`
-          INSERT INTO weather_hourly_forecast
-          ${sql(forecast.map((hour) => ({
+        const forecastInsertions = forecast.map((hour) => ({
           location_id: locationId,
           forecast_time: hour.dt,
           forecast: sql.json({ version: 1, forecast: hour }),
           temperature: hour.temp,
           rain_mm: hour.rain?.['1h'] ?? 0,
           snow_mm: hour.snow?.['1h'] ?? 0
-        })))}
+        }));
+        await sql`
+          INSERT INTO weather_hourly_forecast ${sql(forecastInsertions)}
         `;
       });
     } catch (err) {
