@@ -1,5 +1,7 @@
 *.js
 *.mjs
 *.sqlite
+*_test.*
+*/*_test.*
 node_modules
 secrets
