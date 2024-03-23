@@ -11,7 +11,7 @@ ENV DEBUG *
 
 COPY --chown=becky:becky package.json .
 COPY --chown=becky:becky package-lock.json .
-RUN npm install
+RUN npm install --omit dev
 
 COPY --chown=becky:becky tsconfig.json .
 COPY --chown=becky:becky src ./src
