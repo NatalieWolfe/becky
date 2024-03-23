@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/index.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest --config vitest.config.ts",
     "compile": "tsc",
     "migrate": "node src/migrate_sqlite_to_psql.mjs",
     "scrape": "node src/scraper.mjs",
@@ -22,5 +22,8 @@
     "socket.io-client": "^4.6.1",
     "sqlite3": "^5.1.6",
     "typescript": "^5.0.2"
+  },
+  "devDependencies": {
+    "vitest": "^1.4.0"
   }
 }
