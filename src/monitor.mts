@@ -119,7 +119,7 @@ export function time<T>(
   }
 
   const start = Date.now();
-  const record = labels ? () => {
+  let record = labels ? () => {
     metric.observe(
       labels as Record<string, string | number>,
       (Date.now() - start) / 1000
@@ -129,15 +129,14 @@ export function time<T>(
   }
 
   try {
-    const res = func();
+    let res = func();
     if (res instanceof Promise) {
-      return res.finally(record) as T;
+      res = res.finally(record) as T;
+      record = null;
     }
-    record();
     return res;
-  } catch (err) {
-    record();
-    throw err;
+  } finally {
+    if (record) record();
   }
 }
 
