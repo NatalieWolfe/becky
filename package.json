@@ -7,8 +7,8 @@
     "test": "vitest --config vitest.config.ts",
     "compile": "tsc",
     "migrate": "node src/migrate_sqlite_to_psql.mjs",
-    "scrape": "node src/scraper.mjs",
-    "start": "node src/index.mjs"
+    "scrape": "node src/services/scraper.mjs",
+    "start": "node src/services/becky-bot.mjs"
   },
   "author": "",
   "license": "MIT",

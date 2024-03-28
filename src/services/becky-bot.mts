@@ -1,11 +1,11 @@
 import { io } from 'socket.io-client';
 
-import { BeckyBot } from './beckybot.mjs';
-import { Database } from './database.mjs';
-import { Monitor } from './monitor.mjs';
-import { OpenWeather } from './openweather.mjs';
-import { getSecret } from './secret.mjs';
-import { WeatherLoader } from './weather_loader.mjs';
+import { BeckyBot } from '../beckybot.mjs';
+import { Database } from '../database.mjs';
+import { Monitor } from '../monitor.mjs';
+import { OpenWeather } from '../openweather.mjs';
+import { getSecret } from '../secret.mjs';
+import { WeatherLoader } from '../weather_loader.mjs';
 
 const TELEGRAM_BOT_HOST = await getSecret('telegram_bot_host');
 

@@ -1,9 +1,9 @@
 import { Gauge } from 'prom-client';
 
-import { Database } from './database.mjs';
-import { time, Monitor } from './monitor.mjs';
-import { OpenWeather } from './openweather.mjs';
-import { WeatherLoader } from './weather_loader.mjs';
+import { Database } from '../database.mjs';
+import { time, Monitor } from '../monitor.mjs';
+import { OpenWeather } from '../openweather.mjs';
+import { WeatherLoader } from '../weather_loader.mjs';
 
 const BACKFILL_LIMIT = 500;
 
