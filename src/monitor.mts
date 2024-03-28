@@ -34,7 +34,8 @@ export class Monitor {
       );
       throw error;
     });
-    collectDefaultMetrics({ labels });
+    register.setDefaultLabels(labels);
+    collectDefaultMetrics();
   }
 
   /**
