@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
-import { Counter, Histogram } from 'prom-client';
-import { Socket } from 'socket.io-client';
+import { Counter, Gauge, Histogram } from 'prom-client';
+import { Server, Socket } from 'socket.io';
 
 import { Coordinates, Database, Location } from './database.mjs';
 import { time } from './monitor.mjs';
@@ -24,6 +24,10 @@ const requestDuration = new Histogram({
   name: 'request_duration_seconds',
   help: 'Duration of requests to Becky.',
   labelNames: ['endpoint']
+});
+const connectionGuage = new Gauge({
+  name: 'becky_active_client_connection_count',
+  help: 'Number of connections from Becky clients.'
 });
 
 enum ErrorCode {
@@ -75,7 +79,7 @@ export class BeckyBot {
 
   constructor(
     private readonly _db: Database,
-    private readonly _socket: Socket,
+    private readonly _server: Server,
     private readonly _loader: WeatherLoader,
     private readonly _weather: OpenWeather
   ) {
@@ -83,7 +87,25 @@ export class BeckyBot {
       this._waitResolve = resolve;
       this._waitReject = reject;
     });
+    this._server.on('connection', (socket) => this._onConnection(socket));
+  }
 
+  wait(): Promise<void> { return this._waitPromise; }
+
+  private _onConnection(socket: Socket) {
+    connectionGuage.inc();
+    socket.on('disconnect', () => connectionGuage.dec());
+    new BeckyBotSocket(this._db, socket, this._loader, this._weather);
+  }
+}
+
+class BeckyBotSocket {
+  constructor(
+    private readonly _db: Database,
+    private readonly _socket: Socket,
+    private readonly _loader: WeatherLoader,
+    private readonly _weather: OpenWeather
+  ) {
     this._socket.onAny((endpoint: string) => requestCounter.inc({ endpoint }));
     this._socket.onAnyOutgoing(() => responseCounter.inc());
     this._socket.on('addLocation', (...args: unknown[]) => {
@@ -108,8 +130,6 @@ export class BeckyBot {
       );
     });
   }
-
-  wait(): Promise<void> { return this._waitPromise; }
 
   private async _updateForecast(location: Location) {
     // Skip updating if the forecast isn't too old.

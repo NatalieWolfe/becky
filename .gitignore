@@ -106,6 +106,7 @@ dist
 # Typescript built files
 src/*.js
 src/*.mjs
+src/**/*.mjs
 
 # Configuration
 secrets/

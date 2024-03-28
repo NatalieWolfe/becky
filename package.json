@@ -8,7 +8,8 @@
     "compile": "tsc",
     "migrate": "node src/migrate_sqlite_to_psql.mjs",
     "scrape": "node src/services/scraper.mjs",
-    "start": "node src/services/becky-bot.mjs"
+    "start": "node src/services/becky-bot.mjs",
+    "telegram": "node src/services/telegram.mjs"
   },
   "author": "",
   "license": "MIT",
@@ -19,8 +20,10 @@
     "pino": "^8.19.0",
     "postgres": "^3.3.5",
     "prom-client": "^15.0.0",
+    "socket.io": "^4.7.5",
     "socket.io-client": "^4.6.1",
     "sqlite3": "^5.1.6",
+    "telegraf": "^4.16.3",
     "typescript": "^5.0.2"
   },
   "devDependencies": {
