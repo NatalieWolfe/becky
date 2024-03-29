@@ -1,11 +1,13 @@
 import dayjs from 'dayjs';
 import { Counter, Gauge, Histogram } from 'prom-client';
 import { Server, Socket } from 'socket.io';
+import { Socket as ClientSocket } from 'socket.io-client';
 
 import { Coordinates, Database, Location } from './database.mjs';
 import { time } from './monitor.mjs';
 import { OpenWeather } from './openweather.mjs';
 import { WeatherLoader } from './weather_loader.mjs';
+import { InvertedPromise } from './promises.mjs';
 
 const EARTH_RADIUS = 6378137;
 const MAX_OFFSET = 2.5;  // +/- 2.5 degrees
@@ -38,15 +40,25 @@ enum ErrorCode {
   NOT_IMPLEMENTED = 501,
 }
 
-interface AddLocationRequest {
+interface Request {
   requestId: string;
+}
+
+interface SuccessResponse { }
+interface ErrorResponse {
+  error: ErrorCode,
+  message?: string
+}
+
+type Response = SuccessResponse | ErrorResponse;
+
+interface AddLocationRequest extends Request {
   name: string;
   lat: number;
   lon: number;
 }
 
-interface ListLocationsRequest {
-  requestId: string;
+interface ListLocationsRequest extends Request {
 }
 
 interface PrecipitationTotals {
@@ -67,8 +79,7 @@ interface LocationResponse {
   forecast?: ForecastSummary;
 }
 
-interface WhereToGoRequest {
-  requestId: string;
+interface WhereToGoRequest extends Request {
   where: string;
 }
 
@@ -99,6 +110,9 @@ export class BeckyBot {
   }
 }
 
+/**
+ * Server-side connection handler.
+ */
 class BeckyBotSocket {
   constructor(
     private readonly _db: Database,
@@ -267,6 +281,88 @@ class BeckyBotSocket {
   }
 }
 
+/**
+ * Client-side connection handler.
+ */
+export class BeckyBotClient {
+  constructor(private readonly _socket: ClientSocket) { }
+
+  addLocation(req: AddLocationRequest): Promise<void> {
+    return this._sendRequest('addLocation', req).end;
+  }
+
+  listLocations(req: ListLocationsRequest): AsyncIterable<Location> {
+    return this._sendListRequest('listLocations', 'location', req);
+  }
+
+  whereToGo(where: string): AsyncIterable<Location> {
+    return this._sendListRequest(
+      'whereToGo',
+      'location',
+      { where } as WhereToGoRequest
+    );
+  }
+
+  private _sendRequest(
+    command: string,
+    req: Partial<Request>
+  ): { requestId: string, end: Promise<void> } {
+    return {
+      requestId: req.requestId = `req-${Math.random()}`,
+      end: new Promise((resolve, reject) => {
+        this._socket.once(req.requestId!, (res: Response) => {
+          if (isErrorResponse(res)) {
+            reject(new Error(`${ErrorCode[res.error]}: ${res.message ?? ''}`));
+          } else {
+            resolve();
+          }
+        });
+        this._socket.emit(command, req);
+      })
+    };
+  }
+
+  private _sendListRequest<T>(
+    command: string,
+    listSuffix: string,
+    req: Partial<Request>
+  ): AsyncIterable<T> {
+    const { requestId, end } = this._sendRequest(command, req);
+    const results = [new InvertedPromise<T>()];
+    const listResponse = `${requestId}_${listSuffix}`;
+
+    this._socket.on(listResponse, (loc: T) => {
+      const back = results[results.length - 1];
+      results.push(new InvertedPromise<T>());
+      back.resolve(loc);
+    });
+
+    end.catch((err) => {
+      results[results.length - 1].reject(err);
+    });
+    end.finally(() => {
+      this._socket.off(listResponse);
+    });
+
+    return {
+      [Symbol.asyncIterator]: () => ({
+        next: async (): Promise<IteratorResult<T>> => {
+          const front = results[0];
+          try {
+            return { value: await front.promise, done: false };
+          } finally {
+            results.shift();
+          }
+        },
+        return: (value: T): Promise<IteratorResult<T>> => {
+          this._socket.off(listResponse);
+          return Promise.resolve({ value, done: results.length > 0 });
+        }
+      })
+    };
+  }
+}
+
 function toRadians(deg: number): number {
   return deg * (Math.PI / 180);
 }
@@ -289,4 +385,8 @@ function badWeatherHistory({ rain, snow }: LocationResponse): boolean {
   if (rain?.day > 10) return true;
   if (snow?.day > 10 || snow?.week > 100) return true;
   return false;
+}
+
+function isErrorResponse(res: Response): res is ErrorResponse {
+  return typeof (res as ErrorResponse).error === 'number';
 }
