@@ -10,6 +10,16 @@ services:
       - PGHOST=postgres
     volumes:
       - ./secrets:/becky/secrets
+  telegram:
+    build:
+      dockerfile: ./Dockerfile
+    depends_on:
+      - becky
+    environment:
+      - BECKY_HOST=becky
+    volumes:
+      - ./secrets:/becky/secrets
+    command: [ "npm", "run", "telegram" ]
   scrape:
     build:
       dockerfile: ./Dockerfile
@@ -20,7 +30,7 @@ services:
       - PGHOST=postgres
     volumes:
       - ./secrets:/becky/secrets
-    command: ["npm", "run", "scrape"]
+    command: [ "npm", "run", "scrape" ]
   migrate:
     build:
       dockerfile: ./Dockerfile
@@ -32,7 +42,7 @@ services:
     volumes:
       - ./secrets:/becky/secrets
       - ./becky.sqlite:/becky/becky.sqlite:rw
-    command: ["npm", "run", "migrate"]
+    command: [ "npm", "run", "migrate" ]
   postgres:
     image: postgres:16
     environment:
@@ -44,7 +54,7 @@ services:
     ports:
       - 5432:5432
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
